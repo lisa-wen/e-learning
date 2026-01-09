@@ -29,8 +29,8 @@ print(f"Loaded PDF with {len(pages)} pages")
 
 # Text in kleinere Bestandteile (Chunks) aufteilen
 text_splitter = RecursiveCharacterTextSplitter(
-     chunk_size=350,
-     chunk_overlap=150,
+     chunk_size=800,
+     chunk_overlap=200,
  )
 #
 # # Vektordatenbank einrichten und Kollektion erstellen
@@ -41,13 +41,7 @@ emb = embedding_functions.SentenceTransformerEmbeddingFunction(
 )
 collection = client.get_or_create_collection(
      "verfahrenstechnik",
-     embedding_function=emb,
-     metadata={
-        "hnsw:space": "cosine",
-        "hnsw:M": 32,
-        "hnsw:construction_ef": 400,
-        "hnsw:search_ef": 200
-     }
+     embedding_function=emb
 )
 #
 ids = []

@@ -7,10 +7,14 @@ from chromadb import Collection
 
 # Anfrage, die Nutzende stellen
 class SearchToolInput(BaseModel):
-    query: Optional[str] = Field(
-        None,
+    query: str = Field(
+        ...,
         description="nutzerfrage",
     )
+    #query: Optional[str] = Field(
+    #    None,
+    #    description="nutzerfrage",
+    #)
 
 
 # Werkzeug (Tool), um die Datenbank abzufragen
@@ -27,11 +31,12 @@ class SearchTool(BaseTool):
         super().__init__()
         self.collection = collection
 
-    def _run(self, query: Optional[str], **kwargs) -> Any:
+    def _run(self, query: str, **kwargs) -> Any:
+    #def _run(self, query: Optional[str], **kwargs) -> Any:
         try:
             results = self.collection.query(
                 query_texts=[query],
-                n_results=10,
+                n_results=5,
             )
             print(results)
             return results
