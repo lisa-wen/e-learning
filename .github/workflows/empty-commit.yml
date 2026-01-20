@@ -2,7 +2,7 @@ name: Empty Commit
 
 on:
   schedule:
-    - cron: '0 */4 * * *'   # aller 4 Stunden
+    - cron: '0 */10 * * *'  # aller 10 Stunden
   workflow_dispatch:        # erlaubt manuelle Durchläufe
 
 permissions:
