@@ -19,6 +19,7 @@ emb = embedding_functions.SentenceTransformerEmbeddingFunction(
 collection = client.get_or_create_collection(
     name="studienberatung",
     embedding_function=emb,
+    trust_remote_code=True,
 )
 
 # Dokumente in die Datenbank laden

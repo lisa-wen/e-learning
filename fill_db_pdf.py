@@ -36,8 +36,9 @@ text_splitter = RecursiveCharacterTextSplitter(
 # # Vektordatenbank einrichten und Kollektion erstellen
 client = chromadb.PersistentClient(path="./chroma_neu")
 emb = embedding_functions.SentenceTransformerEmbeddingFunction(
-     model_name="jinaai/jina-embeddings-v2-base-de",
-     device="cpu"
+    model_name="jinaai/jina-embeddings-v2-base-de",
+    device="cpu",
+    trust_remote_code=True,
 )
 collection = client.get_or_create_collection(
      "verfahrenstechnik",
