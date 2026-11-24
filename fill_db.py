@@ -7,19 +7,27 @@ import chromadb
 
 # Vekordatenbank einrichten
 client = chromadb.Client()
-client = chromadb.PersistentClient(path="./chroma_db")
+client = chromadb.PersistentClient(path="./chroma_neu")
 
 
 # Deutsche Embeddings von JinAI benutzen (https://huggingface.co/jinaai/jina-embeddings-v2-base-de)
 emb = embedding_functions.SentenceTransformerEmbeddingFunction(
-    model_name="jinaai/jina-embeddings-v2-base-de"
+    model_name="jinaai/jina-embeddings-v2-base-de",
+    trust_remote_code=True,
 )
 
 # Kollektion erstellen
 collection = client.get_or_create_collection(
     name="studienberatung",
     embedding_function=emb,
-    trust_remote_code=True,
+    configuration={
+        "hnsw": {
+            "space": "cosine",
+            "num_threads": 1,
+            "ef_construction": 200,
+            "ef_search": 200,
+        }
+    },
 )
 
 # Dokumente in die Datenbank laden
@@ -28,7 +36,7 @@ directory_path = 'documents'
 identifier=0
 for filename in os.listdir(directory_path):
     file_path = os.path.join(directory_path, filename)
-    with open(file_path, 'r') as file:
+    with open(file_path, 'r', encoding="utf-8") as file:
         content = file.read()
     identifier += 1
     document = Document(

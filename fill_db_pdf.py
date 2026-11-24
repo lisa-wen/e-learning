@@ -16,7 +16,7 @@ documents = {
 pages = []
 for key, doc in documents.items():
      reader = PdfReader(doc["path"])
-     for page_number, page in enumerate(reader.pages, start=95):
+     for page_number, page in enumerate(reader.pages, start=96):
          text = page.extract_text()
          if text:
              pages.append({
@@ -42,7 +42,15 @@ emb = embedding_functions.SentenceTransformerEmbeddingFunction(
 )
 collection = client.get_or_create_collection(
      "verfahrenstechnik",
-     embedding_function=emb
+     embedding_function=emb,
+     configuration={
+        "hnsw": {
+            "space": "cosine",
+            "num_threads": 1,
+            "ef_construction": 200,
+            "ef_search": 200,
+        }
+    },
 )
 #
 ids = []

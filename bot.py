@@ -14,55 +14,62 @@ import chromadb
 from chromadb.utils import embedding_functions
 from dotenv import load_dotenv
 from operator import add
+from itertools import chain
 from langchain_core.messages import AIMessage, AIMessageChunk
 
 load_dotenv()
 FAQ = True
-SYSTEM_PROMPT=("Du bist ein freundlicher Lern-Assistent. Nimm das"
-               "Such-Tool und wähle nur die für die Frage relevanten Quellen aus und formatiere die Quellenangaben aus den Metadaten (Feld"
-               "*metadatas* im zurückgelieferten Objekt des SearchTools"
-               "mit nummerierten Referenzen (z.B. [1], [2]) im Text und der entsprechenden Quellenangabe"
+SYSTEM_PROMPT=("Du bist ein freundlicher Lern-Assistent. Nimm das "
+               "Such-Tool und wähle nur die für die Frage relevanten Quellen aus und formatiere die Quellenangaben aus den Metadaten (Feld "
+               "*metadatas* im zurückgelieferten Objekt des SearchTools) "
+               "mit nummerierten Referenzen (z.B. [1], [2]) im Text und der entsprechenden Quellenangabe "
                "am Ende (z.B. [1] Einführung in die Verfahrenstechnik, Kapitel 4.1.3 Tiefenfiltration, S. 128, [2] Einführung in die Verfahrenstechnik, Kapitel 4.4 Trennen im Zyklon, S. 177")
 MODEL_NAME = "openai/gpt-5-mini"
-MAX_TOKEN = 24000
+MAX_TOKEN = 8000
 
 # Initialisiere Nachrichten
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
 # Initialisiere das Basis-LLM
-if "base_llm" not in st.session_state:
-    st.session_state.base_llm = ChatOpenAI(
-        #api_key=os.getenv("OPENROUTER_API_KEY"),
-        api_key=st.secrets["OPENROUTER_API_KEY"],
+@st.cache_resource(show_spinner=False)
+def get_base_llm():
+    return ChatOpenAI(
+        api_key=os.getenv("OPENROUTER_API_KEY"),
+        #api_key=st.secrets["OPENROUTER_API_KEY"],
         base_url="https://openrouter.ai/api/v1",
         model=MODEL_NAME,
-        temperature=0.0,
-        streaming=True
+        streaming=True,
+        extra_body={"reasoning": {"effort": "minimal"}}
     )
 
 # Initialisiere das Suchtool, falls im FAQ-Modus
-if FAQ:
-    if "tools_node" not in st.session_state:
-        client = chromadb.PersistentClient(path="./chroma_neu")
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-        emb = embedding_functions.SentenceTransformerEmbeddingFunction(
-            model_name="jinaai/jina-embeddings-v2-base-de",
-            device=device
-        )
-        print("Using device:", device)
+@st.cache_resource(show_spinner=False)
+def get_tools():
+    client = chromadb.PersistentClient(path="./chroma_neu")
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    emb = embedding_functions.SentenceTransformerEmbeddingFunction(
+        model_name="jinaai/jina-embeddings-v2-base-de",
+        device=device
+    )
+    print("Using device:", device)
 
-        collection = client.get_or_create_collection(
-            "verfahrenstechnik",
-            embedding_function=emb)
+    collection = client.get_or_create_collection(
+        "verfahrenstechnik",
+        embedding_function=emb)
 
-        search_tool = SearchTool(collection)
-        TOOLS = [search_tool]
-        st.session_state.tools_node = ToolNode(TOOLS)
-        st.session_state.llm = st.session_state.base_llm.bind_tools(TOOLS)
-# Andernfalls ist das LLM das Base-LLM ohne Tools
-else:
-    st.session_state.llm = st.session_state.base_llm
+    search_tool = SearchTool(collection)
+    return [search_tool]
+
+with st.empty():
+    base_llm = get_base_llm()
+    if FAQ:
+        TOOLS = get_tools()
+        tools_node = ToolNode(TOOLS)
+        llm = base_llm.bind_tools(TOOLS)
+    # Andernfalls ist das LLM das Base-LLM ohne Tools
+    else:
+        llm = base_llm
 
 
 # Track Nachrichten (messages) und speichere das LLM-Objekt, damit es
@@ -81,18 +88,29 @@ def chat_node(state: GraphState) -> dict:
     return {"messages": [ai]}
 
 
-if "app_graph" not in st.session_state:
+@st.cache_resource(show_spinner=False)
+def get_app_graph():
     graph = StateGraph(GraphState)
     graph.add_node("chat", chat_node)
     graph.set_entry_point("chat")
     if FAQ:
-        graph.add_node("tools", st.session_state.tools_node)
+        graph.add_node("tools", tools_node)
         graph.add_conditional_edges("chat", tools_condition, {"tools": "tools", "__end__": END})
         graph.add_edge("tools", "chat")
     else:
         graph.add_edge("chat", END)
-    app_graph = graph.compile()
-    st.session_state.app_graph = app_graph
+    return graph.compile()
+
+with st.empty():
+    app_graph = get_app_graph()
+
+
+def stream_tokens(inputs):
+    for event in app_graph.stream(inputs, stream_mode="messages"):
+        if isinstance(event[0], AIMessageChunk):
+            chunk_content = event[0].content
+            if chunk_content:
+                yield chunk_content
 
 
 st.title("Lern-Bot")
@@ -109,27 +127,17 @@ if prompt := st.chat_input("Frag, für mehr Informationen!"):
     with st.chat_message("user"):
         st.write(content)
 
-    history_msgs = MessageHandler(model=MODEL_NAME.split("/")[-1],max_tokens=24000)
+    history_msgs = MessageHandler(model=MODEL_NAME.split("/")[-1],max_tokens=MAX_TOKEN)
     for role, content in st.session_state.messages:
         history_msgs.add_message(HumanMessage(content=content) if role == "user" else AIMessage(content=content))
 
     # Nachrichten streamen
     with st.chat_message("assistant"):
-        full_response = ""
-        message_placeholder = st.empty()
-
-        for event in st.session_state.app_graph.stream({"messages": history_msgs.get_conversation(), "llm": st.session_state.llm}, stream_mode="messages"):
-            # Extract content from the event
-            if isinstance(event[0], AIMessageChunk):
-                chunk_content = event[0].content
-                if chunk_content:
-                    full_response += chunk_content
-                    message_placeholder.markdown(full_response + " ")
-
-        # Finale KI-Nachricht anzeigen
-        message_placeholder.markdown(full_response)
+        tokens = stream_tokens({"messages": history_msgs.get_conversation(), "llm": llm})
+        with st.spinner("Denke nach ..."):
+            first_token = next(tokens, "")
+        full_response = st.write_stream(chain([first_token], tokens))
 
     # Finale KI-Nachricht in der Historie speichern
     st.session_state.messages.append(("assistant", full_response))
     st.rerun()
-
